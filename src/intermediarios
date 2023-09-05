@@ -1,0 +1,203 @@
+const db = require('./bancodedados/bancodedados');
+
+const controladorDB = require('./bancodedados/funcoes-utilitarias');
+
+const autenticarSenha = (requisicao, resposta, next) => {
+    const { senha_banco } = requisicao.query;
+
+    if (!senha_banco || senha_banco !== db.banco.senha) {
+        return resposta.status(401).json({ "mensagem": "A senha do banco informada é inválida!" });
+    }
+
+    next();
+}
+
+const checarCamposBody = (requisicao, resposta, next) => {
+
+    const campos = {
+        usuario: ["nome", "cpf", "data_nascimento", "telefone", "email", "senha"],
+        deposito: ["numero_conta", "valor"],
+        saque: ["numero_conta", "valor", "senha"],
+        transferencia: ["numero_conta_origem", "numero_conta_destino", "valor", "senha"],
+    }
+
+    const dadosRecebidos = requisicao.body;
+
+    if (!dadosRecebidos) {
+        return resposta.status(400).json({ "mensagem": "Todos os campos precisam ser preenchidos!" });
+    }
+    else {
+
+        let arrayCampos;
+
+        if (requisicao.route.path.startsWith("/contas")) {
+            arrayCampos = campos.usuario;
+        }
+        else if (requisicao.originalUrl == "/transacoes/depositar") {
+            arrayCampos = campos.deposito;
+        }
+        else if (requisicao.originalUrl == "/transacoes/sacar") {
+            arrayCampos = campos.saque;
+        }
+        else if (requisicao.originalUrl == "/transacoes/transferir") {
+            arrayCampos = campos.transferencia;
+        }
+
+        for (let i = 0; i < arrayCampos.length; i++) {
+            if (!dadosRecebidos[arrayCampos[i]]) {
+                return resposta.status(400).json({ "mensagem": "Todos os campos precisam ser preenchidos!" });
+            }
+        }
+    }
+
+    next();
+}
+
+const checarCamposQuery = (requisicao, resposta, next) => {
+
+    const { numero_conta, senha } = requisicao.query;
+
+    if (!numero_conta || !senha) {
+        return resposta.status(400).json({ "mensagem": "O número da conta e a senha são obrigatórios!" });
+    }
+
+    next();
+
+}
+
+const checarUsuarioRepetido = (requisicao, resposta, next) => {
+
+    const dadosRecebidos = requisicao.body;
+
+    const { numeroConta } = requisicao.params;
+
+    const encontradoCPF = controladorDB.getContaPorUsuarioCpf(dadosRecebidos.cpf);
+
+    const encontradoEmail = controladorDB.getContaPorUsuarioEmail(dadosRecebidos.email);
+
+    if (encontradoCPF || encontradoEmail) {
+
+        if (!numeroConta) {
+            return resposta.status(400).json({ "mensagem": "Já existe uma conta com o cpf ou e-mail informado!" });
+        }
+
+        if (numeroConta != encontradoCPF.numero || numeroConta != encontradoEmail.numero) {
+            return resposta.status(400).json({ "mensagem": "Já existe uma conta com o cpf ou e-mail informado!" });
+        }
+
+    }
+
+    next();
+
+}
+
+const checarExisteConta = (requisicao, resposta, next) => {
+
+    const params = requisicao.params,
+        query = requisicao.query,
+        body = requisicao.body;
+
+    let numeroDaConta = -1;
+
+    if (Object.entries(params).length !== 0) {
+        numeroDaConta = params.numeroConta;
+    }
+    else if (Object.entries(query).length !== 0) {
+        numeroDaConta = query.numero_conta;
+    }
+    else {
+        numeroDaConta = body.numero_conta;
+    }
+
+    const { numero_conta_origem, numero_conta_destino } = requisicao.body;
+
+    if (!numeroDaConta && (!numero_conta_origem || !numero_conta_destino)) {
+        return resposta.status(400).json({ "mensagem": "Número da conta não informado" });
+    }
+
+    const contaEncontrada = controladorDB.getContaPorNumero(numeroDaConta);
+
+    const contaOrigemEncontrada = controladorDB.getContaPorNumero(numero_conta_origem);
+    const contaDestinoEncontrada = controladorDB.getContaPorNumero(numero_conta_destino);
+
+    if (!contaEncontrada) {
+        if (!contaOrigemEncontrada || !contaDestinoEncontrada) {
+            return resposta.status(404).json({ "mensagem": "A conta não existe!" });
+        }
+    }
+
+    next();
+}
+
+const checarSaldoConta = (requisicao, resposta, next) => {
+    const { numeroConta } = requisicao.params;
+    const conta = controladorDB.getContaPorNumero(numeroConta);
+    if (conta.saldo > 0) {
+        return resposta.status(401).send({ "mensagem": "A conta só pode ser removida se o saldo for zero!" });
+    }
+    next();
+}
+
+const checarValorPositivo = (requisicao, resposta, next) => {
+    const { valor } = requisicao.body;
+
+    if (valor <= 0) {
+        return resposta.status(401).send({ "mensagem": "Não é possível realizar transações com valores negativos ou zerados" });
+    }
+
+    next();
+}
+
+const validarSenhaUsuario = (requisicao, resposta, next) => {
+
+    const query = requisicao.query,
+        body = requisicao.body;
+
+    let numeroDaConta = -1, senha;
+
+    if (Object.entries(query).length !== 0) {
+        numeroDaConta = query.numero_conta;
+        senha = query.senha;
+    }
+    else {
+        numeroDaConta = body.numero_conta ?? body.numero_conta_origem;
+        senha = body.senha;
+    }
+
+    const conta = controladorDB.getContaPorNumero(numeroDaConta);
+
+    if (conta.usuario.senha != senha) {
+        return resposta.status(401).send({ "mensagem": "Senha inválida!" });
+    }
+
+    next();
+
+}
+
+const verificarSaldoDisponivel = (requisicao, resposta, next) => {
+
+    const { numero_conta, valor, numero_conta_origem } = requisicao.body;
+
+    const conta = controladorDB.getContaPorNumero(numero_conta) ?? controladorDB.getContaPorNumero(numero_conta_origem);
+
+    if (conta.saldo < valor) {
+        return resposta.status(403).send({ "mensagem": "Saldo insuficiente para realizar transação!" });
+    }
+
+    next();
+}
+
+
+
+module.exports = {
+    autenticarSenha,
+    checarCamposBody,
+    checarCamposQuery,
+    checarUsuarioRepetido,
+    checarExisteConta,
+    checarSaldoConta,
+    checarValorPositivo,
+    validarSenhaUsuario,
+    verificarSaldoDisponivel
+
+}
