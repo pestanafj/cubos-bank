@@ -52,7 +52,7 @@ function getTransferenciasRecebidas(numero_conta) {
         return db.depositos;
     }
     return db.transferencias.filter((deposito) => {
-        return deposito.numero_conta_origem == numero_conta;
+        return deposito.numero_conta_destino == numero_conta;
     });
 }
 
@@ -99,7 +99,7 @@ function getExtratoCronologicoConta(numero_conta) {
     for (transferencia of transacoes.transferenciasRecebidas) {
         extratoCronologico.push({
             data: transferencia.data,
-            descricao: `TRANSFERÊNCIA RECEBIDA DA CONTA:${transferencia.numero_conta_destino}`,
+            descricao: `TRANSFERÊNCIA RECEBIDA DA CONTA:${transferencia.numero_conta_origem}`,
             valor: transferencia.valor
         });
     }
